@@ -126,18 +126,21 @@ async function checkSgStatusCredential() {
   return { level: "up", detail: `signed, fresh (${ageS.toFixed(1)}s old)`, ms };
 }
 
+// CN monitors are informational (warn-only) until jiaozi.tech ICP filing
+// completes: pre-ICP the trial stack is IP-only and routes from overseas
+// datacenters to CN IPs are commonly dropped, which is not an outage.
 async function checkCnHealth() {
   const { res, body, ms, err } = await probe(`${CN_BASE}/health`);
-  if (!res) return { level: "down", detail: `unreachable: ${err}`, ms };
+  if (!res) return { level: "warn", detail: `unreachable from GitHub vantage: ${err}`, ms };
   if (res.status === 200 && body?.ok === true) return { level: "up", detail: "http 200", ms };
-  return { level: "down", detail: `http ${res.status}`, ms };
+  return { level: "warn", detail: `http ${res.status}`, ms };
 }
 
 async function checkCnStatusPassthrough() {
   const { res, body, ms, err } = await probe(`${CN_BASE}/api/status/${PROBE_CERT}`);
-  if (!res) return { level: "down", detail: `unreachable: ${err}`, ms };
+  if (!res) return { level: "warn", detail: `unreachable from GitHub vantage: ${err}`, ms };
   if (res.status !== 200 && res.status !== 404) {
-    return { level: "down", detail: `http ${res.status}`, ms };
+    return { level: "warn", detail: `http ${res.status}`, ms };
   }
   if (body?.degraded === true) {
     return { level: "warn", detail: "DEGRADED: CN serving unsigned replica (SG link down?)", ms };
@@ -152,8 +155,8 @@ const MONITORS = [
   { id: "sg-portal", name: "International portal (www.jiaozi.io)", fn: checkSgPortal },
   { id: "sg-status-key", name: "SG Core signing key disclosure", fn: checkSgStatusKey },
   { id: "sg-status", name: "SG Core signed status credential", fn: checkSgStatusCredential },
-  { id: "cn-health", name: "CN trial front (pre-ICP, by IP)", fn: checkCnHealth },
-  { id: "cn-status", name: "CN cross-border status passthrough", fn: checkCnStatusPassthrough },
+  { id: "cn-health", name: "CN trial front (informational until ICP)", fn: checkCnHealth },
+  { id: "cn-status", name: "CN cross-border passthrough (informational)", fn: checkCnStatusPassthrough },
 ];
 
 for (const m of MONITORS) {
