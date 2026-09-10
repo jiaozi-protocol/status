@@ -32,9 +32,50 @@ function canonicalJson(value) {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
 }
 
+// base58btc (Bitcoin alphabet) decoder — dependency-free.
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function base58Decode(str) {
+  const bytes = [0];
+  for (const ch of str) {
+    let carry = B58.indexOf(ch);
+    if (carry < 0) return null;
+    for (let i = 0; i < bytes.length; i++) {
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (const ch of str) {
+    if (ch !== "1") break;
+    bytes.push(0);
+  }
+  return Buffer.from(bytes.reverse());
+}
+
+/**
+ * publicKeyMultibase → raw 32-byte Ed25519 key. Two encodings are accepted:
+ *  - standard Multikey (issuer since 2026-08-30): "z" + base58btc(0xed 0x01 || key)
+ *  - legacy encoding (pre-2026-08-30): "z" + base64url(key)
+ * Fix 2026-09-10: the monitor kept the legacy decoder after the issuer moved to Multikey,
+ * producing false "BAD SIGNATURE" alerts every run since 2026-08-31.
+ */
+function multibaseToRawEd25519(publicKeyMultibase) {
+  if (typeof publicKeyMultibase !== "string" || !publicKeyMultibase.startsWith("z")) return null;
+  const body = publicKeyMultibase.slice(1);
+  const b58 = base58Decode(body);
+  if (b58 && b58.length === 34 && b58[0] === 0xed && b58[1] === 0x01) return b58.subarray(2);
+  const b64 = Buffer.from(body, "base64url");
+  return b64.length === 32 ? b64 : null;
+}
+
 function verifySignature(publicKeyMultibase, message, signatureBase64Url) {
   try {
-    const raw = Buffer.from(publicKeyMultibase.replace(/^z/, ""), "base64url");
+    const raw = multibaseToRawEd25519(publicKeyMultibase);
+    if (!raw) return false;
     const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]);
     return edVerify(
       null,
